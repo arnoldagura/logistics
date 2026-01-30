@@ -28,6 +28,8 @@ interface DeliveryTableProps {
   data: Delivery[]
   statusFilter?: DeliveryStatus
   zoneFilter?: Zone
+  selectedDeliveryId?: string | null
+  onDeliverySelect?: (id: string) => void
 }
 
 const statusConfig: Record<DeliveryStatus, { label: string; className: string }> = {
@@ -60,7 +62,7 @@ const zoneConfig: Record<Zone, { label: string; className: string }> = {
   },
 }
 
-export function DeliveryTable({ data, statusFilter, zoneFilter }: DeliveryTableProps) {
+export function DeliveryTable({ data, statusFilter, zoneFilter, selectedDeliveryId, onDeliverySelect }: DeliveryTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -274,19 +276,28 @@ export function DeliveryTable({ data, statusFilter, zoneFilter }: DeliveryTableP
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && 'selected'}
-                  className="border-zinc-800/50 hover:bg-zinc-800/30 transition-colors"
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="px-3 py-2">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              table.getRowModel().rows.map((row) => {
+                const isSelected = row.original.id === selectedDeliveryId
+                return (
+                  <TableRow
+                    key={row.id}
+                    data-state={isSelected ? 'selected' : undefined}
+                    onClick={() => onDeliverySelect?.(row.original.id)}
+                    className={cn(
+                      'border-zinc-800/50 transition-colors cursor-pointer',
+                      isSelected
+                        ? 'bg-cyan-500/10 hover:bg-cyan-500/15 border-l-2 border-l-cyan-400'
+                        : 'hover:bg-zinc-800/30'
+                    )}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id} className="px-3 py-2">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                )
+              })
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-zinc-500">

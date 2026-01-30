@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense, lazy } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -17,7 +17,13 @@ import {
   MoreVertical,
   UserPlus,
   XCircle,
+  Timer,
+  Route as RouteIcon,
 } from 'lucide-react'
+import { fetchRouteInfo, formatDuration, formatDistance, type RouteInfo } from '@/lib/routing'
+
+// Lazy load the map component to avoid SSR issues with Leaflet
+const DeliveryMap = lazy(() => import('@/features/dispatcher/components/delivery-map'))
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -66,6 +72,7 @@ function DeliveryDetailsContent({ deliveryId }: { deliveryId: string }) {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [selectedRider, setSelectedRider] = useState<Rider | null>(null)
   const [confirmDeliverOpen, setConfirmDeliverOpen] = useState(false)
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null)
 
   const { data: delivery, isLoading, error } = useQuery({
     queryKey: ['delivery', deliveryId],
@@ -96,6 +103,15 @@ function DeliveryDetailsContent({ deliveryId }: { deliveryId: string }) {
       setConfirmDeliverOpen(false)
     },
   })
+
+  // Fetch route info when delivery loads
+  useEffect(() => {
+    if (delivery) {
+      fetchRouteInfo(delivery.source.coordinates, delivery.destination.coordinates)
+        .then(setRouteInfo)
+        .catch(console.error)
+    }
+  }, [delivery?.id])
 
   if (isLoading) {
     return <DeliveryDetailsSkeleton />
@@ -258,8 +274,33 @@ function DeliveryDetailsContent({ deliveryId }: { deliveryId: string }) {
                   </div>
                 </div>
 
+                {/* Route Info (ETA & Distance) */}
+                {routeInfo ? (
+                  <div className="flex items-center gap-6 ml-14 px-4 py-3 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+                    <div className="flex items-center gap-2">
+                      <Timer className="h-4 w-4 text-cyan-400" />
+                      <div>
+                        <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">ETA</p>
+                        <p className="text-lg font-semibold text-cyan-400">{formatDuration(routeInfo.duration)}</p>
+                      </div>
+                    </div>
+                    <div className="h-8 w-px bg-zinc-700" />
+                    <div className="flex items-center gap-2">
+                      <RouteIcon className="h-4 w-4 text-violet-400" />
+                      <div>
+                        <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">Distance</p>
+                        <p className="text-lg font-semibold text-violet-400">{formatDistance(routeInfo.distance)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ml-14 px-4 py-3 rounded-lg bg-zinc-800/30 animate-pulse">
+                    <div className="h-6 w-32 bg-zinc-700/50 rounded" />
+                  </div>
+                )}
+
                 {/* Connector */}
-                <div className="ml-5 border-l-2 border-dashed border-zinc-700 h-8" />
+                <div className="ml-5 border-l-2 border-dashed border-zinc-700 h-4" />
 
                 {/* Destination */}
                 <div className="flex items-start gap-4">
@@ -275,27 +316,28 @@ function DeliveryDetailsContent({ deliveryId }: { deliveryId: string }) {
               </div>
             </div>
 
-            {/* Map Placeholder */}
+            {/* Route Map */}
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 backdrop-blur-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-zinc-200">Map View</h2>
-                <Badge variant="outline" className="text-xs text-zinc-500 border-zinc-700">
-                  Coming Soon
+                <h2 className="text-sm font-semibold text-zinc-200">Route Map</h2>
+                <Badge variant="outline" className="text-xs text-cyan-400 bg-cyan-500/10 border-cyan-500/30">
+                  Live
                 </Badge>
               </div>
-              <div className="p-5">
-                <div className="h-64 rounded-lg bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
-                  <div className="text-center space-y-3">
-                    <div className="h-16 w-16 rounded-full bg-zinc-700/50 flex items-center justify-center mx-auto">
-                      <Map className="h-8 w-8 text-zinc-500" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-zinc-400">Interactive Map</p>
-                      <p className="text-xs text-zinc-600">Live tracking visualization</p>
-                    </div>
+              <Suspense fallback={
+                <div className="h-72 flex items-center justify-center">
+                  <div className="flex items-center gap-2 text-zinc-500">
+                    <Map className="h-5 w-5 animate-pulse" />
+                    <span className="text-sm">Loading map...</span>
                   </div>
                 </div>
-              </div>
+              }>
+                <DeliveryMap
+                  deliveries={[delivery]}
+                  selectedDeliveryId={delivery.id}
+                  className="h-72"
+                />
+              </Suspense>
             </div>
 
             {/* Timeline */}

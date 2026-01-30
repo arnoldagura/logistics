@@ -1,10 +1,10 @@
 'use client'
 
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useState, lazy } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { z } from 'zod'
-import { Filter, Radio, RotateCcw } from 'lucide-react'
+import { Filter, Radio, RotateCcw, Map, Table2, Calculator, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -21,7 +21,11 @@ import {
   TableSkeleton,
   DeliveryTable,
   QuoteCalculator,
+  CreateDeliveryDialog,
 } from '@/features/dispatcher/components'
+
+// Lazy load the map component to avoid SSR issues with Leaflet
+const DeliveryMap = lazy(() => import('@/features/dispatcher/components/delivery-map'))
 
 // Search params validation schema
 const dispatcherSearchSchema = z.object({
@@ -64,6 +68,11 @@ interface DispatcherContentProps {
 function DispatcherContent({ search }: DispatcherContentProps) {
   const navigate = useNavigate({ from: '/dispatcher' })
   const { delivery_status, zone } = search
+
+  // State for selected delivery and view mode
+  const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null)
+  const [showQuoteCalculator, setShowQuoteCalculator] = useState(false)
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
 
   // Fetch stats
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -125,129 +134,195 @@ function DispatcherContent({ search }: DispatcherContentProps) {
                 </span>
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-zinc-500">
-                <span className="hidden sm:block">System Status:</span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-emerald-400 font-medium">Operational</span>
-                </span>
+              <div className="flex items-center gap-4">
+                <Button
+                  onClick={() => setShowCreateDialog(true)}
+                  size="sm"
+                  className="bg-cyan-600 hover:bg-cyan-500 text-white h-8"
+                >
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  New Delivery
+                </Button>
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  <span className="hidden sm:block">System Status:</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-emerald-400 font-medium">Operational</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
         </header>
 
         {/* Main Content */}
-        <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        <main className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           {/* Stats Cards */}
           <StatsCards stats={stats ?? null} isLoading={statsLoading} />
 
-          {/* Controls & Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-            {/* Main Panel */}
-            <div className="space-y-4">
-              {/* Filters */}
-              <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-zinc-800 bg-zinc-900/40">
-                <div className="flex items-center gap-2 text-zinc-400">
-                  <Filter className="h-4 w-4" />
-                  <span className="text-xs font-medium uppercase tracking-wider">Filters</span>
-                </div>
+          {/* Filters Bar */}
+          <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-zinc-800 bg-zinc-900/40">
+            <div className="flex items-center gap-2 text-zinc-400">
+              <Filter className="h-4 w-4" />
+              <span className="text-xs font-medium uppercase tracking-wider">Filters</span>
+            </div>
 
-                <div className="flex flex-wrap items-center gap-2 flex-1">
-                  {/* Status Filter */}
-                  <Select
-                    value={delivery_status ?? 'all'}
-                    onValueChange={(v) => updateFilters({ delivery_status: v })}
-                  >
-                    <SelectTrigger className="w-[140px] h-8 bg-zinc-800/50 border-zinc-700 text-zinc-200 text-sm">
-                      <SelectValue placeholder="All Statuses" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-zinc-900 border-zinc-700">
-                      <SelectItem value="all" className="text-zinc-200 focus:bg-zinc-800">
-                        All Statuses
-                      </SelectItem>
-                      <SelectItem value="pending" className="text-zinc-200 focus:bg-zinc-800">
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-amber-400" />
-                          Pending
-                        </span>
-                      </SelectItem>
-                      <SelectItem value="picked_up" className="text-zinc-200 focus:bg-zinc-800">
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                          In Transit
-                        </span>
-                      </SelectItem>
-                      <SelectItem value="delivered" className="text-zinc-200 focus:bg-zinc-800">
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                          Delivered
-                        </span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+            <div className="flex flex-wrap items-center gap-2 flex-1">
+              {/* Status Filter */}
+              <Select
+                value={delivery_status ?? 'all'}
+                onValueChange={(v) => updateFilters({ delivery_status: v })}
+              >
+                <SelectTrigger className="w-[140px] h-8 bg-zinc-800/50 border-zinc-700 text-zinc-200 text-sm">
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-700">
+                  <SelectItem value="all" className="text-zinc-200 focus:bg-zinc-800">
+                    All Statuses
+                  </SelectItem>
+                  <SelectItem value="pending" className="text-zinc-200 focus:bg-zinc-800">
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-amber-400" />
+                      Pending
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="picked_up" className="text-zinc-200 focus:bg-zinc-800">
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                      In Transit
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="delivered" className="text-zinc-200 focus:bg-zinc-800">
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                      Delivered
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
 
-                  {/* Zone Filter */}
-                  <Select
-                    value={zone ?? 'all'}
-                    onValueChange={(v) => updateFilters({ zone: v })}
-                  >
-                    <SelectTrigger className="w-[140px] h-8 bg-zinc-800/50 border-zinc-700 text-zinc-200 text-sm">
-                      <SelectValue placeholder="All Zones" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-zinc-900 border-zinc-700">
-                      <SelectItem value="all" className="text-zinc-200 focus:bg-zinc-800">
-                        All Zones
-                      </SelectItem>
-                      <SelectItem value="Mandaue" className="text-zinc-200 focus:bg-zinc-800">
-                        Mandaue
-                      </SelectItem>
-                      <SelectItem value="Cebu_City" className="text-zinc-200 focus:bg-zinc-800">
-                        Cebu City
-                      </SelectItem>
-                      <SelectItem value="Lapu_Lapu" className="text-zinc-200 focus:bg-zinc-800">
-                        Lapu-Lapu
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+              {/* Zone Filter */}
+              <Select
+                value={zone ?? 'all'}
+                onValueChange={(v) => updateFilters({ zone: v })}
+              >
+                <SelectTrigger className="w-[140px] h-8 bg-zinc-800/50 border-zinc-700 text-zinc-200 text-sm">
+                  <SelectValue placeholder="All Zones" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-700">
+                  <SelectItem value="all" className="text-zinc-200 focus:bg-zinc-800">
+                    All Zones
+                  </SelectItem>
+                  <SelectItem value="Mandaue" className="text-zinc-200 focus:bg-zinc-800">
+                    Mandaue
+                  </SelectItem>
+                  <SelectItem value="Cebu_City" className="text-zinc-200 focus:bg-zinc-800">
+                    Cebu City
+                  </SelectItem>
+                  <SelectItem value="Lapu_Lapu" className="text-zinc-200 focus:bg-zinc-800">
+                    Lapu-Lapu
+                  </SelectItem>
+                </SelectContent>
+              </Select>
 
-                  {/* Clear Filters */}
-                  {hasFilters && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearFilters}
-                      className="h-8 text-xs text-zinc-400 hover:text-zinc-200"
-                    >
-                      <RotateCcw className="h-3 w-3 mr-1" />
-                      Clear
-                    </Button>
-                  )}
-                </div>
+              {/* Clear Filters */}
+              {hasFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="h-8 text-xs text-zinc-400 hover:text-zinc-200"
+                >
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Clear
+                </Button>
+              )}
+            </div>
 
-                {/* Active filter badges */}
-                {hasFilters && (
-                  <div className="flex items-center gap-1.5">
-                    {delivery_status && (
-                      <span
-                        className={cn(
-                          'text-xs px-2 py-0.5 rounded-full border',
-                          delivery_status === 'pending' &&
-                            'bg-amber-500/10 text-amber-400 border-amber-500/30',
-                          delivery_status === 'picked_up' &&
-                            'bg-cyan-500/10 text-cyan-400 border-cyan-500/30',
-                          delivery_status === 'delivered' &&
-                            'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        )}
-                      >
-                        {delivery_status === 'picked_up' ? 'In Transit' : delivery_status}
-                      </span>
+            {/* Active filter badges */}
+            {hasFilters && (
+              <div className="flex items-center gap-1.5">
+                {delivery_status && (
+                  <span
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded-full border',
+                      delivery_status === 'pending' &&
+                        'bg-amber-500/10 text-amber-400 border-amber-500/30',
+                      delivery_status === 'picked_up' &&
+                        'bg-cyan-500/10 text-cyan-400 border-cyan-500/30',
+                      delivery_status === 'delivered' &&
+                        'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                     )}
-                    {zone && (
-                      <span className="text-xs px-2 py-0.5 rounded-full border bg-violet-500/10 text-violet-400 border-violet-500/30">
-                        {zone.replace('_', ' ')}
-                      </span>
-                    )}
+                  >
+                    {delivery_status === 'picked_up' ? 'In Transit' : delivery_status}
+                  </span>
+                )}
+                {zone && (
+                  <span className="text-xs px-2 py-0.5 rounded-full border bg-violet-500/10 text-violet-400 border-violet-500/30">
+                    {zone.replace('_', ' ')}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Quote Calculator Toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowQuoteCalculator(!showQuoteCalculator)}
+              className={cn(
+                'h-8 text-xs ml-auto',
+                showQuoteCalculator ? 'text-cyan-400 bg-cyan-500/10' : 'text-zinc-400 hover:text-zinc-200'
+              )}
+            >
+              <Calculator className="h-3.5 w-3.5 mr-1.5" />
+              Quote Calculator
+            </Button>
+          </div>
+
+          {/* Map + Table Side-by-Side Layout */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Interactive Map */}
+            <div className="xl:sticky xl:top-20 xl:self-start">
+              <Suspense fallback={
+                <div className="h-[500px] rounded-xl border border-zinc-800 bg-zinc-900/60 flex items-center justify-center">
+                  <div className="flex items-center gap-2 text-zinc-500">
+                    <Map className="h-5 w-5 animate-pulse" />
+                    <span className="text-sm">Loading map...</span>
                   </div>
+                </div>
+              }>
+                <DeliveryMap
+                  deliveries={deliveries ?? []}
+                  selectedDeliveryId={selectedDeliveryId}
+                  onDeliverySelect={setSelectedDeliveryId}
+                  statusFilter={delivery_status}
+                  zoneFilter={zone}
+                  className="h-[500px]"
+                />
+              </Suspense>
+            </div>
+
+            {/* Data Table */}
+            <div className="space-y-4">
+              {/* Table Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Table2 className="h-4 w-4 text-zinc-500" />
+                  <span className="text-sm font-medium text-zinc-300">Deliveries</span>
+                  <span className="text-xs text-zinc-600 font-mono">
+                    ({deliveries?.length ?? 0} total)
+                  </span>
+                </div>
+                {selectedDeliveryId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedDeliveryId(null)}
+                    className="h-7 text-xs text-zinc-400 hover:text-zinc-200"
+                  >
+                    Clear selection
+                  </Button>
                 )}
               </div>
 
@@ -260,17 +335,27 @@ function DispatcherContent({ search }: DispatcherContentProps) {
                     data={deliveries ?? []}
                     statusFilter={delivery_status}
                     zoneFilter={zone}
+                    selectedDeliveryId={selectedDeliveryId}
+                    onDeliverySelect={setSelectedDeliveryId}
                   />
                 )}
               </Suspense>
             </div>
+          </div>
 
-            {/* Sidebar - Quote Calculator */}
-            <div className="lg:sticky lg:top-20 lg:self-start">
+          {/* Quote Calculator Panel (Collapsible) */}
+          {showQuoteCalculator && (
+            <div className="fixed bottom-4 right-4 z-50 w-80 animate-in slide-in-from-bottom-4 duration-200">
               <QuoteCalculator />
             </div>
-          </div>
+          )}
         </main>
+
+        {/* Create Delivery Dialog */}
+        <CreateDeliveryDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+        />
 
         {/* Footer */}
         <footer className="border-t border-zinc-800/50 mt-12">

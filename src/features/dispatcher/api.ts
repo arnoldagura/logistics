@@ -2,18 +2,21 @@ import { createServerFn } from '@tanstack/react-start'
 import {
   MOCK_DELIVERIES,
   RIDERS,
+  LOCATIONS,
   calculateDistance,
   type Delivery,
   type Rider,
   type Coordinates,
   type Zone,
   type DeliveryStatus,
+  type Location,
 } from '@/lib/deliveries'
 
 // In-memory stores for mutations (would be a database in production)
 let deliveriesStore = [...MOCK_DELIVERIES]
 let ridersStore = [...RIDERS]
 let nextRiderId = 9
+let nextDeliveryId = 25
 
 // Get deliveries with optional filters
 export const getDeliveries = createServerFn({
@@ -291,3 +294,66 @@ export const deleteRider = createServerFn({
 
   return { success: true }
 })
+
+// Get available locations
+export const getLocations = createServerFn({
+  method: 'GET',
+}).handler(async () => {
+  return LOCATIONS
+})
+
+// Create new delivery
+export const createDelivery = createServerFn({
+  method: 'POST',
+}).handler(
+  async ({
+    data,
+  }: {
+    data: {
+      sourceLocationName: string
+      destinationLocationName: string
+      weight: number
+      priority: 'normal' | 'express'
+    }
+  }) => {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    const source = LOCATIONS.find((l) => l.name === data.sourceLocationName)
+    const destination = LOCATIONS.find((l) => l.name === data.destinationLocationName)
+
+    if (!source || !destination) {
+      throw new Error('Invalid location')
+    }
+
+    if (source.name === destination.name) {
+      throw new Error('Source and destination must be different')
+    }
+
+    // Calculate quote
+    const distance = calculateDistance(source.coordinates, destination.coordinates)
+    const baseRate = 45
+    const perKmRate = 15
+    const weightSurcharge = data.weight > 10 ? (data.weight - 10) * 5 : 0
+    const expressSurcharge = data.priority === 'express' ? 50 : 0
+    const quote = Math.round(baseRate + distance * perKmRate + weightSurcharge + expressSurcharge)
+
+    const newDelivery: Delivery = {
+      id: `DEL-${String(nextDeliveryId++).padStart(4, '0')}`,
+      source,
+      destination,
+      status: 'pending',
+      rider: null,
+      quote,
+      createdAt: new Date(),
+      weight: data.weight,
+      priority: data.priority,
+    }
+
+    deliveriesStore.unshift(newDelivery) // Add to beginning
+
+    return {
+      success: true,
+      delivery: newDelivery,
+    }
+  }
+)
